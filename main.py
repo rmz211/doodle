@@ -1,49 +1,63 @@
-# main.py
-
 import pygame
 from settings import *
-from sprites import create_sprite_groups
-from levels import LevelManager
+from sprites import create_sprite_groups, Player
+# from levels import LevelManager
 from score import ScoreManager
-
+# import os
 
 pygame.init()
-# сам экран
+
+# окно
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Doodle Jump")
+pygame.display.set_caption("Только вверх!")
+clock = pygame.time.Clock()
 
-score_manager = ScoreManager()
-level_manager = LevelManager()
+# фон
+background = pygame.image.load(BACKGROUND_IMAGE)
+background = pygame.transform.scale(background, (SCREEN_WIDTH, SCREEN_HEIGHT))
 
-# очки
-score_manager.load_scores()
-
-# текст на экр
-def draw_text(surface, text, size, x, y, color=WHITE):
-    font = pygame.font.Font(pygame.font.match_font('arial'), size)
+# функция отображения текста
+def draw_text(surface, text, size, x, y, color):
+    font = pygame.font.Font(UI_FONT, size)
     text_surface = font.render(text, True, color)
     text_rect = text_surface.get_rect()
-    text_rect.midtop = (x, y)
+    text_rect.topleft = (x, y)
     surface.blit(text_surface, text_rect)
 
-# старт экр
+# стартовое окно
 def show_start_screen():
     screen.fill(BLUE)
-    draw_text(screen, "Doodle Jump", 40, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 4)
-    draw_text(screen, "Нажмите любую клавишу, чтобы начать", 20, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+    draw_text(screen, "Только Вверх!", 60, SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 4, TEXT_COLOR)
+    draw_text(screen, "Выберите уровень сложности:", 40, SCREEN_WIDTH // 2 - 200, SCREEN_HEIGHT // 2, TEXT_COLOR)
+    draw_text(screen, "1 - Легкий, 2 - Средний, 3 - Сложный", 30, SCREEN_WIDTH // 2 - 200, SCREEN_HEIGHT // 1.8, TEXT_COLOR)
     pygame.display.flip()
-    wait_for_key()
+    return wait_for_level_choice()
 
-# финал экр
+# ожидание выбора уровня
+def wait_for_level_choice():
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_1:
+                    return "easy", 3
+                elif event.key == pygame.K_2:
+                    return "medium", 2
+                elif event.key == pygame.K_3:
+                    return "hard", 1
+
+# финальное окно
 def show_game_over_screen(score):
     screen.fill(BLUE)
-    draw_text(screen, "Игра окончена", 40, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 4)
-    draw_text(screen, f"Ваш результат: {score}", 30, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-    draw_text(screen, "Нажмите любую клавишу, чтобы выйти", 20, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 1.5)
+    draw_text(screen, "Игра окончена!", 60, SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 4, TEXT_COLOR)
+    draw_text(screen, f"Ваш результат: {score}", 40, SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2, TEXT_COLOR)
+    draw_text(screen, "Нажмите любую клавишу для выхода", 30, SCREEN_WIDTH // 2 - 250, SCREEN_HEIGHT // 1.5, TEXT_COLOR)
     pygame.display.flip()
     wait_for_key()
 
-# Ожидание нажатия клавиши
+# ожидание нажатия клавиши
 def wait_for_key():
     while True:
         for event in pygame.event.get():
@@ -53,58 +67,82 @@ def wait_for_key():
             if event.type == pygame.KEYDOWN:
                 return
 
-# основной игровой цикл
-def main_game():
-    # группы спрайтов
-    player_group, platform_group = create_sprite_groups()
-    player = next(iter(player_group))  # объект игрока
-    clock = pygame.time.Clock()
-    running = True
+# основной игровой процесс
+def main_game(level, lives):
+    player_group, platform_group = create_sprite_groups(level)
+    player = next(iter(player_group))
+    score_manager = ScoreManager()
+    score = 0
 
+    running = True
     while running:
         clock.tick(FPS)
-        
-        # события
+
+        # Обработка событий
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                player.jump()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_w:
+                    player.jump()
+                if event.key == pygame.K_a:
+                    player.move_left()
+                if event.key == pygame.K_d:
+                    player.move_right()
+            if event.type == pygame.KEYUP:
+                if event.key in (pygame.K_a, pygame.K_d):
+                    player.stop()
+                
 
         # обновление объектов
         player_group.update()
         platform_group.update()
 
-        # столкновения игрока с платформами
+        # проверка столкновений
         hits = pygame.sprite.spritecollide(player, platform_group, False)
-        if hits and player.vel_y > 0:  # Столкновение с платформой только если игрок падает
+        if hits and player.vel_y > 0:
             player.rect.bottom = hits[0].rect.top
             player.vel_y = JUMP_STRENGTH
 
-        # обновление уровня и счета
-        level_manager.calculate_score(player)
-        level_manager.update_level(player_group, platform_group)
+        # перемещение экрана вверх
+        if player.rect.top <= SCREEN_HEIGHT // 4:
+            player.rect.y += abs(player.vel_y)
+            for platform in platform_group:
+                platform.rect.y += abs(player.vel_y)
+                if platform.rect.top > SCREEN_HEIGHT:
+                    platform_group.remove(platform)
+                    new_platform = platform.generate_new()
+                    platform_group.add(new_platform)
 
-        screen.fill(BLUE)
-        player_group.draw(screen)
+        # смерть персонажа
+        if player.rect.top > SCREEN_HEIGHT:
+            lives -= 1
+            if lives <= 0:
+                running = False
+            else:
+                player.rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+
+        # рисование
+        screen.blit(background, (0, 0))
         platform_group.draw(screen)
-        draw_text(screen, f"Очки: {level_manager.total_score}", 20, 50, 10)
-        draw_text(screen, f"Уровень: {level_manager.current_level}", 20, SCREEN_WIDTH - 100, 10)
+        player_group.draw(screen)
+
+        # отображение счёта и жизней
+        score += 1
+        draw_text(screen, f"Счет: {score}", 30, 10, 10, TEXT_COLOR)
+        draw_text(screen, f"Жизни: {lives}", 30, 10, 50, TEXT_COLOR)
+        draw_text(screen, f"Рекорд: {score_manager.get_high_score()}", 30, 10, 90, TEXT_COLOR)
+
         pygame.display.flip()
 
+    score_manager.save_score(score)
+    return score
 
-        if player.rect.top > SCREEN_HEIGHT:
-            running = False
-
-    return level_manager.total_score
-
-
+# основной запуск
 def main():
-    show_start_screen()
-    while True:
-        score = main_game()
-        score_manager.save_score("Player", score)
-        show_game_over_screen(score)
+    level, lives = show_start_screen()
+    score = main_game(level, lives)
+    show_game_over_screen(score)
 
 if __name__ == "__main__":
     main()
